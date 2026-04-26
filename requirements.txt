@@ -1,0 +1,6 @@
+streamlit==1.56.0
+plotly==6.6.0
+plotly-express==0.4.1
+numpy==2.4.4
+duckdb==1.5.1
+pandas==3.0.2
