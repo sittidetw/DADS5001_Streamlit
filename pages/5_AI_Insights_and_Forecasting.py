@@ -1,0 +1,316 @@
+import streamlit as st
+import pandas as pd
+import duckdb
+import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
+
+st.set_page_config(page_title="AI Insights – ShipInsight", page_icon="🤖", layout="wide")
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+:root {
+    --accent-teal: #00D4AA; --accent-cyan: #00B4D8;
+    --accent-amber: #FFB703; --accent-rose: #E63946;
+    --bg-card: rgba(30,33,48,0.85); --text-secondary: #8B95A5;
+    --border-subtle: rgba(255,255,255,0.06);
+}
+html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+div[data-testid="stMetric"] {
+    background: var(--bg-card); border: 1px solid var(--border-subtle);
+    border-radius: 12px; padding: 16px 20px; backdrop-filter: blur(12px);
+}
+div[data-testid="stMetric"] label { color: var(--text-secondary) !important; font-weight: 500 !important; font-size: 0.82rem !important; text-transform: uppercase; }
+div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 700 !important; font-size: 1.6rem !important; }
+.insight-box {
+    background: var(--bg-card); border-left: 3px solid var(--accent-teal);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; margin: 12px 0;
+    color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;
+}
+.sql-result { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 16px; margin-top: 12px; }
+</style>
+""", unsafe_allow_html=True)
+
+if "filtered_df" not in st.session_state:
+    st.warning("⚠️ Please navigate to the **Home** page first to load data.")
+    st.stop()
+
+df = st.session_state["df"]
+filtered = st.session_state["filtered_df"]
+ai_mode = st.session_state.get("ai_mode", False)
+PLOTLY_TEMPLATE = "plotly_dark"
+
+def qr(query: str) -> pd.DataFrame:
+    return duckdb.query(query).to_df()
+
+st.markdown("## 🤖 AI Insights & Forecasting")
+st.caption("Predictive analytics, anomaly detection, and intelligent data querying.")
+st.divider()
+
+# ══════════════════════════════════════════════
+# Tab Layout
+# ══════════════════════════════════════════════
+if ai_mode:
+    tab1, tab2, tab3 = st.tabs(["💬 Chat with Data", "📈 Forecasting", "🔍 Anomaly Detection"])
+else:
+    tab1, tab2, tab3 = st.tabs(["🔎 SQL Query Explorer", "📈 Forecasting", "🔍 Anomaly Detection"])
+
+# ──────────────────────────────────────────────
+# TAB 1: SQL / Chat
+# ──────────────────────────────────────────────
+with tab1:
+    if not ai_mode:
+        st.markdown("### 🔎 DuckDB SQL Query Explorer")
+        st.markdown('<div class="insight-box">💡 Write SQL queries against the <code>filtered</code> dataframe. Use column names in double quotes. Toggle AI mode in the sidebar for natural language queries.</div>', unsafe_allow_html=True)
+
+        templates = {
+            "— Select a template —": "",
+            "Top 5 Industries by Revenue": 'SELECT "Industry", SUM("Revenue") AS total_revenue FROM filtered GROUP BY "Industry" ORDER BY total_revenue DESC LIMIT 5',
+            "Monthly Shipment Count": 'SELECT DATE_TRUNC(\'month\', "Order Date") AS month, COUNT(*) AS shipments FROM filtered GROUP BY 1 ORDER BY 1',
+            "Avg Revenue by Status": 'SELECT "Shipment Status", AVG("Revenue") AS avg_rev, COUNT(*) AS cnt FROM filtered GROUP BY "Shipment Status"',
+            "Top Routes by Volume": 'SELECT "Country of Origin" || \' → \' || "Country of Destination" AS route, COUNT(*) AS volume FROM filtered GROUP BY route ORDER BY volume DESC LIMIT 10',
+        }
+        template = st.selectbox("📋 Query Templates", list(templates.keys()))
+        default_q = templates[template] if template != "— Select a template —" else ""
+
+        user_sql = st.text_area("Enter DuckDB SQL:", value=default_q, height=120, placeholder='SELECT "Industry", COUNT(*) FROM filtered GROUP BY "Industry"')
+
+        if st.button("▶️ Run Query", type="primary"):
+            if user_sql.strip():
+                try:
+                    result = qr(user_sql)
+                    st.success(f"✅ {len(result)} rows returned")
+                    st.dataframe(result, use_container_width=True)
+                    # Auto-chart if small result
+                    if len(result) <= 50 and len(result.columns) >= 2:
+                        num_cols = result.select_dtypes(include="number").columns.tolist()
+                        str_cols = result.select_dtypes(include="object").columns.tolist()
+                        if num_cols and str_cols:
+                            fig = px.bar(result, x=str_cols[0], y=num_cols[0], color_discrete_sequence=["#00D4AA"],
+                                         labels={str_cols[0]: str_cols[0], num_cols[0]: num_cols[0]})
+                            fig.update_layout(template=PLOTLY_TEMPLATE, height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                            fig.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
+                            fig.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
+                            st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Query error: {e}")
+            else:
+                st.warning("Please enter a SQL query.")
+
+    else:
+        # AI Chat Mode
+        st.markdown("### 💬 Chat with Your Data")
+        st.markdown('<div class="insight-box">💡 Ask questions in natural language. The AI will translate your question to SQL, execute it, and visualize the results.</div>', unsafe_allow_html=True)
+
+        cols_info = ", ".join([f'"{c}"' for c in filtered.columns[:20]])
+
+        try:
+            import google.generativeai as genai
+            api_key = st.secrets.get("GOOGLE_API_KEY", None)
+            if not api_key:
+                st.warning("🔑 Add `GOOGLE_API_KEY` to `.streamlit/secrets.toml` to enable AI chat.")
+            else:
+                genai.configure(api_key=api_key)
+                question = st.text_input("🗣️ Ask a question about your shipment data:", placeholder="e.g., Which industry had the highest revenue in Q1 2025?")
+
+                if question:
+                    with st.spinner("🧠 Translating to SQL…"):
+                        model = genai.GenerativeModel("gemini-2.0-flash")
+                        prompt = f"""You are a DuckDB SQL expert. Convert this natural language question to a DuckDB SQL query.
+The dataframe is called 'filtered' with columns: {cols_info}
+"Order Date" is a timestamp. Use double quotes for column names.
+Return ONLY the SQL query, nothing else. No markdown formatting.
+
+Question: {question}"""
+                        resp = model.generate_content(prompt)
+                        sql = resp.text.strip().replace("```sql", "").replace("```", "").strip()
+
+                        st.code(sql, language="sql")
+                        try:
+                            result = qr(sql)
+                            st.dataframe(result, use_container_width=True)
+                            # Auto chart
+                            num_cols = result.select_dtypes(include="number").columns.tolist()
+                            str_cols = result.select_dtypes(include="object").columns.tolist()
+                            if num_cols and str_cols and len(result) <= 50:
+                                fig = px.bar(result, x=str_cols[0], y=num_cols[0], color_discrete_sequence=["#00D4AA"])
+                                fig.update_layout(template=PLOTLY_TEMPLATE, height=350, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                                st.plotly_chart(fig, use_container_width=True)
+
+                            # AI summary
+                            summary_prompt = f"Summarize this data result concisely in 2-3 sentences for a business executive:\nQuestion: {question}\nResult: {result.head(10).to_string()}"
+                            summary = model.generate_content(summary_prompt)
+                            st.markdown(f"**📝 Summary:** {summary.text}")
+                        except Exception as e:
+                            st.error(f"SQL execution error: {e}")
+        except ImportError:
+            st.info("Install `google-generativeai` for AI chat.")
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# ──────────────────────────────────────────────
+# TAB 2: Forecasting
+# ──────────────────────────────────────────────
+with tab2:
+    st.markdown("### 📈 Revenue & Volume Forecasting")
+    st.markdown('<div class="insight-box">💡 <strong>Insight:</strong> Uses linear trend + seasonal decomposition to project future shipment volumes and revenue. The shaded region shows the confidence interval based on historical variance.</div>', unsafe_allow_html=True)
+
+    forecast_months = st.slider("Forecast horizon (months):", 1, 12, 6)
+
+    monthly = qr("""
+        SELECT DATE_TRUNC('month', "Order Date") AS month, SUM("Revenue") AS revenue, COUNT(*) AS shipments
+        FROM filtered GROUP BY 1 ORDER BY 1
+    """)
+    monthly["month"] = pd.to_datetime(monthly["month"])
+
+    if len(monthly) >= 3:
+        monthly["month_num"] = np.arange(len(monthly))
+
+        # Linear regression for trend
+        from numpy.polynomial import polynomial as P
+        coeffs_rev = P.polyfit(monthly["month_num"], monthly["revenue"], 1)
+        coeffs_ship = P.polyfit(monthly["month_num"], monthly["shipments"], 1)
+
+        future_nums = np.arange(len(monthly), len(monthly) + forecast_months)
+        future_months = pd.date_range(start=monthly["month"].iloc[-1] + pd.DateOffset(months=1), periods=forecast_months, freq="MS")
+
+        pred_rev = P.polyval(future_nums, coeffs_rev)
+        pred_ship = P.polyval(future_nums, coeffs_ship)
+
+        rev_std = monthly["revenue"].std() * 0.3
+        ship_std = monthly["shipments"].std() * 0.3
+
+        # Revenue forecast chart
+        fig_fc = go.Figure()
+        fig_fc.add_trace(go.Scatter(x=monthly["month"], y=monthly["revenue"], name="Actual Revenue", mode="lines+markers", line=dict(color="#00D4AA", width=2.5), marker=dict(size=5)))
+        fig_fc.add_trace(go.Scatter(x=future_months, y=pred_rev, name="Forecast", mode="lines+markers", line=dict(color="#FFB703", width=2.5, dash="dash"), marker=dict(size=5)))
+        fig_fc.add_trace(go.Scatter(x=list(future_months) + list(future_months[::-1]), y=list(pred_rev + rev_std) + list((pred_rev - rev_std)[::-1]),
+                                     fill="toself", fillcolor="rgba(255,183,3,0.1)", line=dict(width=0), name="Confidence", showlegend=False))
+
+        fig_fc.update_layout(template=PLOTLY_TEMPLATE, height=400, margin=dict(l=20, r=20, t=30, b=20),
+                              paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                              yaxis_title="Revenue (฿)", hovermode="x unified")
+        fig_fc.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
+        fig_fc.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
+        st.plotly_chart(fig_fc, use_container_width=True)
+
+        # Volume forecast
+        fig_vs = go.Figure()
+        fig_vs.add_trace(go.Scatter(x=monthly["month"], y=monthly["shipments"], name="Actual Shipments", mode="lines+markers", line=dict(color="#00B4D8", width=2.5)))
+        fig_vs.add_trace(go.Scatter(x=future_months, y=pred_ship, name="Forecast", mode="lines+markers", line=dict(color="#E63946", width=2.5, dash="dash")))
+        fig_vs.add_trace(go.Scatter(x=list(future_months) + list(future_months[::-1]), y=list(pred_ship + ship_std) + list((pred_ship - ship_std)[::-1]),
+                                     fill="toself", fillcolor="rgba(230,57,70,0.1)", line=dict(width=0), name="Confidence", showlegend=False))
+        fig_vs.update_layout(template=PLOTLY_TEMPLATE, height=400, margin=dict(l=20, r=20, t=30, b=20),
+                              paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                              yaxis_title="Shipment Count", hovermode="x unified")
+        fig_vs.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
+        fig_vs.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
+        st.plotly_chart(fig_vs, use_container_width=True)
+
+        if ai_mode:
+            try:
+                import google.generativeai as genai
+                api_key = st.secrets.get("GOOGLE_API_KEY", None)
+                if api_key:
+                    genai.configure(api_key=api_key)
+                    ctx = {"last_3_months": monthly[["month", "revenue", "shipments"]].tail(3).to_dict("records"),
+                           "forecast_revenue": list(zip([str(m) for m in future_months], pred_rev.tolist())),
+                           "forecast_shipments": list(zip([str(m) for m in future_months], pred_ship.tolist()))}
+                    prompt = f"As a logistics forecasting analyst, interpret these forecast results and provide 3 strategic recommendations:\n{ctx}"
+                    with st.spinner("🧠 AI forecast analysis…"):
+                        model = genai.GenerativeModel("gemini-2.0-flash")
+                        st.markdown(model.generate_content(prompt).text)
+            except Exception:
+                pass
+    else:
+        st.info("Not enough data for forecasting. Select a wider date range.")
+
+# ──────────────────────────────────────────────
+# TAB 3: Anomaly Detection
+# ──────────────────────────────────────────────
+with tab3:
+    st.markdown("### 🔍 Revenue Anomaly Detection")
+    st.markdown('<div class="insight-box">💡 <strong>Insight:</strong> Anomalies are months where revenue deviates more than 1.5 standard deviations from the rolling mean. These may indicate seasonal spikes, market disruptions, or operational issues.</div>', unsafe_allow_html=True)
+
+    monthly_anom = qr("""
+        SELECT DATE_TRUNC('month', "Order Date") AS month, SUM("Revenue") AS revenue, COUNT(*) AS shipments
+        FROM filtered GROUP BY 1 ORDER BY 1
+    """)
+    monthly_anom["month"] = pd.to_datetime(monthly_anom["month"])
+
+    if len(monthly_anom) >= 4:
+        window = min(6, len(monthly_anom) // 2)
+        monthly_anom["rolling_mean"] = monthly_anom["revenue"].rolling(window=window, min_periods=2, center=True).mean()
+        monthly_anom["rolling_std"] = monthly_anom["revenue"].rolling(window=window, min_periods=2, center=True).std()
+        monthly_anom["upper"] = monthly_anom["rolling_mean"] + 1.5 * monthly_anom["rolling_std"]
+        monthly_anom["lower"] = monthly_anom["rolling_mean"] - 1.5 * monthly_anom["rolling_std"]
+        monthly_anom["is_anomaly"] = (monthly_anom["revenue"] > monthly_anom["upper"]) | (monthly_anom["revenue"] < monthly_anom["lower"])
+
+        anomalies = monthly_anom[monthly_anom["is_anomaly"]]
+
+        fig_anom = go.Figure()
+        fig_anom.add_trace(go.Scatter(x=monthly_anom["month"], y=monthly_anom["revenue"], name="Revenue", mode="lines+markers", line=dict(color="#00D4AA", width=2), marker=dict(size=5)))
+        fig_anom.add_trace(go.Scatter(x=monthly_anom["month"], y=monthly_anom["rolling_mean"], name="Rolling Mean", line=dict(color="#8B95A5", width=1.5, dash="dot")))
+        fig_anom.add_trace(go.Scatter(x=list(monthly_anom["month"]) + list(monthly_anom["month"][::-1]),
+                                       y=list(monthly_anom["upper"]) + list(monthly_anom["lower"][::-1]),
+                                       fill="toself", fillcolor="rgba(139,149,165,0.1)", line=dict(width=0), name="Normal Range"))
+        if len(anomalies) > 0:
+            fig_anom.add_trace(go.Scatter(x=anomalies["month"], y=anomalies["revenue"], name="⚠️ Anomaly", mode="markers",
+                                           marker=dict(color="#E63946", size=14, symbol="x", line=dict(width=2, color="#E63946"))))
+
+        fig_anom.update_layout(template=PLOTLY_TEMPLATE, height=420, margin=dict(l=20, r=20, t=20, b=20),
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                yaxis_title="Revenue (฿)", hovermode="x unified")
+        fig_anom.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
+        fig_anom.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
+        st.plotly_chart(fig_anom, use_container_width=True)
+
+        if len(anomalies) > 0:
+            st.markdown(f"**⚠️ {len(anomalies)} anomalous month(s) detected:**")
+            for _, row in anomalies.iterrows():
+                direction = "📈 Above" if row["revenue"] > row["rolling_mean"] else "📉 Below"
+                deviation = abs(row["revenue"] - row["rolling_mean"]) / row["rolling_std"] if row["rolling_std"] > 0 else 0
+                st.markdown(f"- **{row['month'].strftime('%B %Y')}**: ฿{row['revenue']:,.0f} ({direction} normal by {deviation:.1f}σ)")
+        else:
+            st.success("✅ No significant anomalies detected in the selected period.")
+
+        # Route anomalies
+        st.divider()
+        st.markdown("### 🛣️ Route-Level Anomaly Detection")
+        route_stats = qr("""
+            SELECT "Country of Origin" || ' → ' || "Country of Destination" AS route,
+                   COUNT(*) AS shipments, AVG("Revenue") AS avg_rev, STDDEV("Revenue") AS std_rev,
+                   SUM(CASE WHEN "Shipment Status" = 'Exception' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS exception_pct
+            FROM filtered GROUP BY route HAVING COUNT(*) >= 20 ORDER BY exception_pct DESC LIMIT 10
+        """)
+
+        fig_route_anom = px.scatter(route_stats, x="avg_rev", y="exception_pct", size="shipments", color="exception_pct",
+                                     text="route", size_max=40, color_continuous_scale=["#00D4AA", "#FFB703", "#E63946"],
+                                     labels={"avg_rev": "Avg Revenue (฿)", "exception_pct": "Exception Rate (%)", "shipments": "Volume"})
+        fig_route_anom.update_traces(textposition="top center", textfont_size=9)
+        fig_route_anom.update_layout(template=PLOTLY_TEMPLATE, height=420, margin=dict(l=20, r=20, t=20, b=20),
+                                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+        fig_route_anom.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
+        fig_route_anom.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
+        st.plotly_chart(fig_route_anom, use_container_width=True)
+
+        if ai_mode:
+            try:
+                import google.generativeai as genai
+                api_key = st.secrets.get("GOOGLE_API_KEY", None)
+                if api_key:
+                    genai.configure(api_key=api_key)
+                    ctx = {"anomalous_months": anomalies[["month", "revenue"]].to_dict("records") if len(anomalies) > 0 else [],
+                           "high_exception_routes": route_stats[["route", "exception_pct", "avg_rev"]].head(5).to_dict("records")}
+                    prompt = f"As a risk analyst, analyze these anomalies and provide root cause hypotheses and 3 mitigation strategies:\n{ctx}"
+                    with st.spinner("🧠 AI anomaly analysis…"):
+                        model = genai.GenerativeModel("gemini-2.0-flash")
+                        st.markdown(model.generate_content(prompt).text)
+            except Exception:
+                pass
+    else:
+        st.info("Not enough data for anomaly detection. Select a wider date range.")
