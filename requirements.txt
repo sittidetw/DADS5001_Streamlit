@@ -3,6 +3,6 @@ pandas
 duckdb
 plotly
 st-gsheets-connection
+gspread
 google-generativeai
-python-dotenv
 numpy
