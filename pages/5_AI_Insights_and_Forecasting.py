@@ -4,33 +4,10 @@ import duckdb
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+from theme import PAGE_CSS, PLOTLY_TEMPLATE, COLOR_SEQ, CHART_LAYOUT, GRID_COLOR, apply_chart_style
 
 st.set_page_config(page_title="AI Insights – ShipInsight", page_icon="🤖", layout="wide")
-
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-:root {
-    --accent-teal: #00D4AA; --accent-cyan: #00B4D8;
-    --accent-amber: #FFB703; --accent-rose: #E63946;
-    --bg-card: rgba(30,33,48,0.85); --text-secondary: #8B95A5;
-    --border-subtle: rgba(255,255,255,0.06);
-}
-html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
-div[data-testid="stMetric"] {
-    background: var(--bg-card); border: 1px solid var(--border-subtle);
-    border-radius: 12px; padding: 16px 20px; backdrop-filter: blur(12px);
-}
-div[data-testid="stMetric"] label { color: var(--text-secondary) !important; font-weight: 500 !important; font-size: 0.82rem !important; text-transform: uppercase; }
-div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-weight: 700 !important; font-size: 1.6rem !important; }
-.insight-box {
-    background: var(--bg-card); border-left: 3px solid var(--accent-teal);
-    border-radius: 0 10px 10px 0; padding: 14px 18px; margin: 12px 0;
-    color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;
-}
-.sql-result { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 16px; margin-top: 12px; }
-</style>
-""", unsafe_allow_html=True)
+st.markdown(PAGE_CSS, unsafe_allow_html=True)
 
 if "filtered_df" not in st.session_state:
     st.warning("⚠️ Please navigate to the **Home** page first to load data.")
@@ -39,7 +16,7 @@ if "filtered_df" not in st.session_state:
 df = st.session_state["df"]
 filtered = st.session_state["filtered_df"]
 ai_mode = st.session_state.get("ai_mode", False)
-PLOTLY_TEMPLATE = "plotly_dark"
+
 
 def qr(query: str) -> pd.DataFrame:
     return duckdb.query(query).to_df()
