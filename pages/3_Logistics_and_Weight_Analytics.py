@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import duckdb
@@ -64,55 +65,109 @@ with c5:
 st.divider()
 
 # ──────────────────────────────────────────────
-# Chargeable vs Actual Weight Scatter
+# Seasonal Weight & Revenue Trends
 # ──────────────────────────────────────────────
-st.markdown("### ⚖️ Chargeable Weight vs. Actual Weight")
-st.markdown('<div class="insight-box">💡 <strong>Insight:</strong> Points above the diagonal (y=x) indicate shipments charged by volumetric weight — bulky but light packages. Clusters below the line represent dense cargo charged at actual weight. Understanding this split helps optimize packaging and pricing.</div>', unsafe_allow_html=True)
+st.markdown("### 📈 Seasonal Weight & Revenue Trends")
+st.markdown('''<div class="insight-box">
+💡 <strong>What does this chart show?</strong> The <span style="color:#8338EC;"><strong>purple line</strong></span> tracks each month\'s total physical weight shipped (left axis). The <span style="color:#A7F3D0;"><strong>green bars</strong></span> show monthly revenue (right axis) so you can see if revenue follows the same seasonal pattern as workload. The <span style="color:#FFB703;"><strong>gold dashed line</strong></span> shows the overall weight trend. Peaks = busiest months. Use this to plan staffing, warehouse space & carrier contracts.
+</div>''', unsafe_allow_html=True)
 
-# Sample for scatter performance (100k points is too many)
-scatter_data = qr("""
-    SELECT
-        "Actual Weight (kg)" AS actual_weight,
-        "Chargeable Weight (kg)" AS chargeable_weight,
-        "Weight Type" AS weight_type,
-        "Revenue" AS revenue,
-        "Shipment Status" AS status
+import numpy as np
+
+trend_data = qr("""
+    SELECT 
+        DATE_TRUNC('month', "Order Date") AS month,
+        SUM("Actual Weight (kg)") AS total_weight,
+        SUM("Revenue") AS total_revenue
     FROM filtered
-    USING SAMPLE 5000
+    WHERE "Order Date" IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1
 """)
+trend_data["month"] = pd.to_datetime(trend_data["month"])
+trend_data["month_str"] = trend_data["month"].dt.strftime('%b %Y')
 
-fig_scatter = px.scatter(
-    scatter_data, x="actual_weight", y="chargeable_weight",
-    color="weight_type", size="revenue",
-    size_max=12, opacity=0.6,
-    color_discrete_sequence=["#00D4AA", "#00B4D8", "#FFB703", "#E63946", "#8338EC", "#FF6D00"],
-    hover_data={"revenue": ":,.0f", "status": True},
-    labels={
-        "actual_weight": "Actual Weight (kg)",
-        "chargeable_weight": "Chargeable Weight (kg)",
-        "weight_type": "Weight Type",
-    },
+fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+
+# Green bars for Monthly Revenue (secondary y-axis)
+fig_trend.add_trace(
+    go.Bar(
+        x=trend_data["month_str"], 
+        y=trend_data["total_revenue"],
+        name="Monthly Revenue", 
+        marker_color="#A7F3D0",
+        opacity=0.8,
+        hovertemplate="%{x}<br>Revenue: ฿%{y:,.0f}<extra></extra>"
+    ), secondary_y=True
 )
 
-# Add y=x reference line
-max_val = max(scatter_data["actual_weight"].max(), scatter_data["chargeable_weight"].max())
-fig_scatter.add_trace(go.Scatter(
-    x=[0, max_val], y=[0, max_val],
-    mode="lines", name="y = x (breakeven)",
-    line=dict(color="rgba(255,255,255,0.3)", width=1.5, dash="dash"),
-    showlegend=True,
-))
+# Purple line for Total Actual Weight (primary y-axis)
+fig_trend.add_trace(
+    go.Scatter(
+        x=trend_data["month_str"], 
+        y=trend_data["total_weight"],
+        name="Total Actual Weight", 
+        mode="lines+markers",
+        line=dict(color="#8338EC", width=3), 
+        marker=dict(size=9, color="#3B82F6", line=dict(color="#8338EC", width=2)),
+        hovertemplate="%{x}<br>Weight: %{y:,.0f} kg<extra></extra>"
+    ), secondary_y=False
+)
 
-fig_scatter.update_layout(
+# Gold dashed line for Weight Trend (primary y-axis)
+if len(trend_data) > 1:
+    x_numeric = np.arange(len(trend_data))
+    z = np.polyfit(x_numeric, trend_data["total_weight"], 1)
+    p = np.poly1d(z)
+    
+    fig_trend.add_trace(
+        go.Scatter(
+            x=trend_data["month_str"], 
+            y=p(x_numeric),
+            name="Weight Trend", 
+            mode="lines",
+            line=dict(color="#FFB703", width=2.5, dash="dash"),
+            hoverinfo="skip"
+        ), secondary_y=False
+    )
+
+    # Annotations for Peak and Low
+    max_idx = trend_data["total_weight"].idxmax()
+    min_idx = trend_data["total_weight"].idxmin()
+    
+    max_x = trend_data.loc[max_idx, "month_str"]
+    max_y = trend_data.loc[max_idx, "total_weight"]
+    
+    min_x = trend_data.loc[min_idx, "month_str"]
+    min_y = trend_data.loc[min_idx, "total_weight"]
+    
+    fig_trend.add_annotation(
+        x=max_x, y=max_y,
+        text=f"<span style='color:#ef4444'>▲</span> <span style='color:#10b981'>Peak: {max_y:,.0f} kg</span>",
+        showarrow=True, arrowhead=1, arrowcolor="#fff",
+        bgcolor="#1F2937", bordercolor="#374151", borderpad=4,
+        ay=-40
+    )
+    
+    fig_trend.add_annotation(
+        x=min_x, y=min_y,
+        text=f"<span style='color:#ef4444'>▼ Low: {min_y:,.0f} kg</span>",
+        showarrow=True, arrowhead=1, arrowcolor="#fff",
+        bgcolor="#1F2937", bordercolor="#374151", borderpad=4,
+        ay=40
+    )
+
+fig_trend.update_layout(
     template=PLOTLY_TEMPLATE, height=480,
     margin=dict(l=20, r=20, t=20, b=20),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
 )
-fig_scatter.update_xaxes(gridcolor="rgba(255,255,255,0.05)")
-fig_scatter.update_yaxes(gridcolor="rgba(255,255,255,0.05)")
+fig_trend.update_yaxes(title_text="Total Actual Weight (kg)", secondary_y=False, gridcolor="rgba(255,255,255,0.05)")
+fig_trend.update_yaxes(title_text="Revenue (฿)", secondary_y=True, showgrid=False)
+fig_trend.update_xaxes(gridcolor="rgba(255,255,255,0.05)", tickangle=-45)
 
-st.plotly_chart(fig_scatter, use_container_width=True)
+st.plotly_chart(fig_trend, use_container_width=True)
 
 # ──────────────────────────────────────────────
 # Weight Type Analysis
