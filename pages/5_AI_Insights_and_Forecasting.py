@@ -77,31 +77,32 @@ with tab1:
 
     else:
         # AI Chat Mode
-        st.markdown("### Chat with Your Data")
+        st.markdown("### 💬 Chat with Your Data")
         st.markdown('<div class="insight-box">💡 Ask questions in natural language. The AI will translate your question to SQL, execute it, and visualize the results.</div>', unsafe_allow_html=True)
 
         cols_info = ", ".join([f'"{c}"' for c in filtered.columns[:20]])
 
         try:
-            import google.generativeai as genai
-            api_key = st.secrets.get("GOOGLE_API_KEY", None)
+            from openai import OpenAI
+            api_key = st.secrets.get("OPENROUTER_API_KEY", None)
             if not api_key:
-                st.warning("🔑 Add `GOOGLE_API_KEY` to `.streamlit/secrets.toml` to enable AI chat.")
+                st.warning("🔑 Add `OPENROUTER_API_KEY` to `.streamlit/secrets.toml` to enable AI chat.")
             else:
-                genai.configure(api_key=api_key)
-                question = st.text_input("Ask a question about your shipment data:", placeholder="e.g., Which industry had the highest revenue in Q1 2025?")
+                client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=api_key,
+                )
+                question = st.text_input("🗣️ Ask a question about your shipment data:", placeholder="e.g., Which industry had the highest revenue in Q1 2025?")
 
                 if question:
                     with st.spinner("🧠 Translating to SQL…"):
-                        model = genai.GenerativeModel("gemini-2.0-flash")
-                        prompt = f"""You are a DuckDB SQL expert. Convert this natural language question to a DuckDB SQL query.
-The dataframe is called 'filtered' with columns: {cols_info}
-"Order Date" is a timestamp. Use double quotes for column names.
-Return ONLY the SQL query, nothing else. No markdown formatting.
-
-Question: {question}"""
-                        resp = model.generate_content(prompt)
-                        sql = resp.text.strip().replace("```sql", "").replace("```", "").strip()
+                        prompt = f"""DuckDB SQL expert. Write a SQL query for: {question}
+Table 'filtered', columns: {cols_info}. "Order Date" is timestamp. Double-quote column names. Return SQL only."""
+                        resp = client.chat.completions.create(
+                            model="google/gemma-4-26b-a4b-it:free",
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                        sql = resp.choices[0].message.content.strip().replace("```sql", "").replace("```", "").strip()
 
                         st.code(sql, language="sql")
                         try:
@@ -116,13 +117,16 @@ Question: {question}"""
                                 st.plotly_chart(fig, use_container_width=True)
 
                             # AI summary
-                            summary_prompt = f"Summarize this data result concisely in 2-3 sentences for a business executive:\nQuestion: {question}\nResult: {result.head(10).to_string()}"
-                            summary = model.generate_content(summary_prompt)
-                            st.markdown(f"**📝 Summary:** {summary.text}")
+                            summary_prompt = f"1-sentence summary for executive. Q: {question}\nData: {result.head(5).to_csv(index=False)}"
+                            summary = client.chat.completions.create(
+                                model="openai/gpt-oss-120b:free",
+                                messages=[{"role": "user", "content": summary_prompt}],
+                            )
+                            st.markdown(f"**📝 Summary:** {summary.choices[0].message.content}")
                         except Exception as e:
                             st.error(f"SQL execution error: {e}")
         except ImportError:
-            st.info("Install `google-generativeai` for AI chat.")
+            st.info("Install `openai` for AI chat.")
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -203,17 +207,23 @@ with tab2:
 
         if ai_mode:
             try:
-                import google.generativeai as genai
-                api_key = st.secrets.get("GOOGLE_API_KEY", None)
+                from openai import OpenAI
+                api_key = st.secrets.get("OPENROUTER_API_KEY", None)
                 if api_key:
-                    genai.configure(api_key=api_key)
-                    ctx = {"last_3_months": monthly[["month", "revenue", "shipments"]].tail(3).to_dict("records"),
-                           "forecast_revenue": list(zip([str(m) for m in future_months], pred_rev.tolist())),
-                           "forecast_shipments": list(zip([str(m) for m in future_months], pred_ship.tolist()))}
-                    prompt = f"As a logistics forecasting analyst, interpret these forecast results and provide 3 strategic recommendations:\n{ctx}"
+                    client = OpenAI(
+                        base_url="https://openrouter.ai/api/v1",
+                        api_key=api_key,
+                    )
+                    ctx = {"last_3_months": monthly[["month", "revenue", "shipments"]].tail(3).to_csv(index=False),
+                           "forecast_revenue": [f"{m},{r:.0f}" for m, r in zip(future_months, pred_rev)],
+                           "forecast_shipments": [f"{m},{s:.0f}" for m, s in zip(future_months, pred_ship)]}
+                    prompt = f"""Forecasting analyst. Give 2 strategic recommendations based on these logistics forecasts.\nData: {ctx}"""
                     with st.spinner("🧠 AI forecast analysis…"):
-                        model = genai.GenerativeModel("gemini-2.0-flash")
-                        st.markdown(model.generate_content(prompt).text)
+                        response = client.chat.completions.create(
+                            model="openai/gpt-oss-120b:free",
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                        st.markdown(response.choices[0].message.content)
             except Exception:
                 pass
     else:
@@ -291,16 +301,22 @@ with tab3:
 
         if ai_mode:
             try:
-                import google.generativeai as genai
-                api_key = st.secrets.get("GOOGLE_API_KEY", None)
+                from openai import OpenAI
+                api_key = st.secrets.get("OPENROUTER_API_KEY", None)
                 if api_key:
-                    genai.configure(api_key=api_key)
-                    ctx = {"anomalous_months": anomalies[["month", "revenue"]].to_dict("records") if len(anomalies) > 0 else [],
-                           "high_exception_routes": route_stats[["route", "exception_pct", "avg_rev"]].head(5).to_dict("records")}
-                    prompt = f"As a risk analyst, analyze these anomalies and provide root cause hypotheses and 3 mitigation strategies:\n{ctx}"
+                    client = OpenAI(
+                        base_url="https://openrouter.ai/api/v1",
+                        api_key=api_key,
+                    )
+                    ctx = {"anomalous_months": anomalies[["month", "revenue"]].to_csv(index=False) if len(anomalies) > 0 else "None",
+                           "high_exception_routes": route_stats[["route", "exception_pct", "avg_rev"]].head(5).to_csv(index=False)}
+                    prompt = f"""Risk analyst. Give 2 root cause hypotheses and 2 mitigation strategies for these anomalies.\nData: {ctx}"""
                     with st.spinner("🧠 AI anomaly analysis…"):
-                        model = genai.GenerativeModel("gemini-2.0-flash")
-                        st.markdown(model.generate_content(prompt).text)
+                        response = client.chat.completions.create(
+                            model="openai/gpt-oss-120b:free",
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                        st.markdown(response.choices[0].message.content)
             except Exception:
                 pass
     else:
