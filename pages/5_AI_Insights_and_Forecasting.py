@@ -21,7 +21,7 @@ ai_mode = st.session_state.get("ai_mode", False)
 def qr(query: str) -> pd.DataFrame:
     return duckdb.query(query).to_df()
 
-st.markdown("## 🤖 AI Insights & Forecasting")
+st.markdown("## AI Insights & Forecasting")
 st.caption("Predictive analytics, anomaly detection, and intelligent data querying.")
 st.divider()
 
@@ -29,16 +29,16 @@ st.divider()
 # Tab Layout
 # ══════════════════════════════════════════════
 if ai_mode:
-    tab1, tab2, tab3 = st.tabs(["💬 Chat with Data", "📈 Forecasting", "🔍 Anomaly Detection"])
+    tab1, tab2, tab3 = st.tabs(["Chat with Data", "Forecasting", "Anomaly Detection"])
 else:
-    tab1, tab2, tab3 = st.tabs(["🔎 SQL Query Explorer", "📈 Forecasting", "🔍 Anomaly Detection"])
+    tab1, tab2, tab3 = st.tabs(["SQL Query Explorer", "Forecasting", "Anomaly Detection"])
 
 # ──────────────────────────────────────────────
 # TAB 1: SQL / Chat
 # ──────────────────────────────────────────────
 with tab1:
     if not ai_mode:
-        st.markdown("### 🔎 DuckDB SQL Query Explorer")
+        st.markdown("### DuckDB SQL Query Explorer")
         st.markdown('<div class="insight-box">💡 Write SQL queries against the <code>filtered</code> dataframe. Use column names in double quotes. Toggle AI mode in the sidebar for natural language queries.</div>', unsafe_allow_html=True)
 
         templates = {
@@ -48,7 +48,7 @@ with tab1:
             "Avg Revenue by Status": 'SELECT "Shipment Status", AVG("Revenue") AS avg_rev, COUNT(*) AS cnt FROM filtered GROUP BY "Shipment Status"',
             "Top Routes by Volume": 'SELECT "Country of Origin" || \' → \' || "Country of Destination" AS route, COUNT(*) AS volume FROM filtered GROUP BY route ORDER BY volume DESC LIMIT 10',
         }
-        template = st.selectbox("📋 Query Templates", list(templates.keys()))
+        template = st.selectbox("Query Templates", list(templates.keys()))
         default_q = templates[template] if template != "— Select a template —" else ""
 
         user_sql = st.text_area("Enter DuckDB SQL:", value=default_q, height=120, placeholder='SELECT "Industry", COUNT(*) FROM filtered GROUP BY "Industry"')
@@ -57,7 +57,7 @@ with tab1:
             if user_sql.strip():
                 try:
                     result = qr(user_sql)
-                    st.success(f"✅ {len(result)} rows returned")
+                    st.success(f"{len(result)} rows returned")
                     st.dataframe(result, use_container_width=True)
                     # Auto-chart if small result
                     if len(result) <= 50 and len(result.columns) >= 2:
@@ -77,7 +77,7 @@ with tab1:
 
     else:
         # AI Chat Mode
-        st.markdown("### 💬 Chat with Your Data")
+        st.markdown("### Chat with Your Data")
         st.markdown('<div class="insight-box">💡 Ask questions in natural language. The AI will translate your question to SQL, execute it, and visualize the results.</div>', unsafe_allow_html=True)
 
         cols_info = ", ".join([f'"{c}"' for c in filtered.columns[:20]])
@@ -89,7 +89,7 @@ with tab1:
                 st.warning("🔑 Add `GOOGLE_API_KEY` to `.streamlit/secrets.toml` to enable AI chat.")
             else:
                 genai.configure(api_key=api_key)
-                question = st.text_input("🗣️ Ask a question about your shipment data:", placeholder="e.g., Which industry had the highest revenue in Q1 2025?")
+                question = st.text_input("Ask a question about your shipment data:", placeholder="e.g., Which industry had the highest revenue in Q1 2025?")
 
                 if question:
                     with st.spinner("🧠 Translating to SQL…"):
@@ -130,8 +130,8 @@ Question: {question}"""
 # TAB 2: Forecasting
 # ──────────────────────────────────────────────
 with tab2:
-    st.markdown("### 📈 Revenue & Volume Forecasting")
-    st.markdown('<div class="insight-box">💡 <strong>Insight:</strong> Uses linear trend + seasonal decomposition to project future shipment volumes and revenue. The shaded region shows the confidence interval based on historical variance.</div>', unsafe_allow_html=True)
+    st.markdown("### Revenue & Volume Forecasting")
+    st.markdown('<div class="insight-box">💡 <strong>Insight:</strong> Uses Holt-Winters Exponential Smoothing to project future shipment volumes and revenue, capturing both trend and seasonality. The shaded region shows the confidence interval.</div>', unsafe_allow_html=True)
 
     forecast_months = st.slider("Forecast horizon (months):", 1, 12, 6)
 
@@ -142,21 +142,35 @@ with tab2:
     monthly["month"] = pd.to_datetime(monthly["month"])
 
     if len(monthly) >= 3:
-        monthly["month_num"] = np.arange(len(monthly))
+        try:
+            from statsmodels.tsa.holtwinters import ExponentialSmoothing
+            
+            seasonal_periods = 12 if len(monthly) >= 24 else None
+            trend = "add"
+            seasonal = "add" if seasonal_periods else None
 
-        # Linear regression for trend
-        from numpy.polynomial import polynomial as P
-        coeffs_rev = P.polyfit(monthly["month_num"], monthly["revenue"], 1)
-        coeffs_ship = P.polyfit(monthly["month_num"], monthly["shipments"], 1)
+            hw_rev = ExponentialSmoothing(monthly["revenue"], trend=trend, seasonal=seasonal, seasonal_periods=seasonal_periods, initialization_method="estimated").fit()
+            hw_ship = ExponentialSmoothing(monthly["shipments"], trend=trend, seasonal=seasonal, seasonal_periods=seasonal_periods, initialization_method="estimated").fit()
 
-        future_nums = np.arange(len(monthly), len(monthly) + forecast_months)
+            pred_rev = hw_rev.forecast(forecast_months).values
+            pred_ship = hw_ship.forecast(forecast_months).values
+            
+            rev_std = monthly["revenue"].std() * 0.2 + (np.arange(forecast_months) * monthly["revenue"].std() * 0.05)
+            ship_std = monthly["shipments"].std() * 0.2 + (np.arange(forecast_months) * monthly["shipments"].std() * 0.05)
+        except Exception as e:
+            from numpy.polynomial import polynomial as P
+            monthly["month_num"] = np.arange(len(monthly))
+            coeffs_rev = P.polyfit(monthly["month_num"], monthly["revenue"], 1)
+            coeffs_ship = P.polyfit(monthly["month_num"], monthly["shipments"], 1)
+
+            future_nums = np.arange(len(monthly), len(monthly) + forecast_months)
+            pred_rev = P.polyval(future_nums, coeffs_rev)
+            pred_ship = P.polyval(future_nums, coeffs_ship)
+
+            rev_std = monthly["revenue"].std() * 0.3
+            ship_std = monthly["shipments"].std() * 0.3
+
         future_months = pd.date_range(start=monthly["month"].iloc[-1] + pd.DateOffset(months=1), periods=forecast_months, freq="MS")
-
-        pred_rev = P.polyval(future_nums, coeffs_rev)
-        pred_ship = P.polyval(future_nums, coeffs_ship)
-
-        rev_std = monthly["revenue"].std() * 0.3
-        ship_std = monthly["shipments"].std() * 0.3
 
         # Revenue forecast chart
         fig_fc = go.Figure()
@@ -209,7 +223,7 @@ with tab2:
 # TAB 3: Anomaly Detection
 # ──────────────────────────────────────────────
 with tab3:
-    st.markdown("### 🔍 Revenue Anomaly Detection")
+    st.markdown("### Revenue Anomaly Detection")
     st.markdown('<div class="insight-box">💡 <strong>Insight:</strong> Anomalies are months where revenue deviates more than 1.5 standard deviations from the rolling mean. These may indicate seasonal spikes, market disruptions, or operational issues.</div>', unsafe_allow_html=True)
 
     monthly_anom = qr("""
@@ -235,7 +249,7 @@ with tab3:
                                        y=list(monthly_anom["upper"]) + list(monthly_anom["lower"][::-1]),
                                        fill="toself", fillcolor="rgba(139,149,165,0.1)", line=dict(width=0), name="Normal Range"))
         if len(anomalies) > 0:
-            fig_anom.add_trace(go.Scatter(x=anomalies["month"], y=anomalies["revenue"], name="⚠️ Anomaly", mode="markers",
+            fig_anom.add_trace(go.Scatter(x=anomalies["month"], y=anomalies["revenue"], name="Anomaly", mode="markers",
                                            marker=dict(color="#E63946", size=14, symbol="x", line=dict(width=2, color="#E63946"))))
 
         fig_anom.update_layout(template=PLOTLY_TEMPLATE, height=420, margin=dict(l=20, r=20, t=20, b=20),
@@ -247,17 +261,17 @@ with tab3:
         st.plotly_chart(fig_anom, use_container_width=True)
 
         if len(anomalies) > 0:
-            st.markdown(f"**⚠️ {len(anomalies)} anomalous month(s) detected:**")
+            st.markdown(f"**{len(anomalies)} anomalous month(s) detected:**")
             for _, row in anomalies.iterrows():
                 direction = "📈 Above" if row["revenue"] > row["rolling_mean"] else "📉 Below"
                 deviation = abs(row["revenue"] - row["rolling_mean"]) / row["rolling_std"] if row["rolling_std"] > 0 else 0
                 st.markdown(f"- **{row['month'].strftime('%B %Y')}**: ฿{row['revenue']:,.0f} ({direction} normal by {deviation:.1f}σ)")
         else:
-            st.success("✅ No significant anomalies detected in the selected period.")
+            st.success("No significant anomalies detected in the selected period.")
 
         # Route anomalies
         st.divider()
-        st.markdown("### 🛣️ Route-Level Anomaly Detection")
+        st.markdown("### Route-Level Anomaly Detection")
         route_stats = qr("""
             SELECT "Country of Origin" || ' → ' || "Country of Destination" AS route,
                    COUNT(*) AS shipments, AVG("Revenue") AS avg_rev, STDDEV("Revenue") AS std_rev,
