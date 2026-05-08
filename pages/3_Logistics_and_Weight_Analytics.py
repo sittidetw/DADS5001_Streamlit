@@ -330,39 +330,44 @@ if ai_mode:
     st.markdown("### 🤖 AI Weight Optimization Insights")
 
     try:
-        import google.generativeai as genai
+        from openai import OpenAI
 
-        api_key = st.secrets.get("GOOGLE_API_KEY", None)
+        api_key = st.secrets.get("OPENROUTER_API_KEY", None)
         if not api_key:
-            st.warning("🔑 Add `GOOGLE_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
+            st.warning("🔑 Add `OPENROUTER_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
         else:
-            genai.configure(api_key=api_key)
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+            )
 
+            # Limit data to last 3 months for AI context
+            max_date = filtered["Order Date"].max()
+            min_date = max_date - pd.DateOffset(months=3)
+            ai_filtered = filtered[filtered["Order Date"] >= min_date]
+            
+            ai_weight_kpi = duckdb.query('SELECT AVG("Actual Weight (kg)") AS avg_actual, AVG("Volumetric Weight (kg)") AS avg_volumetric, SUM(CASE WHEN "Chargeable Weight (kg)" > "Actual Weight (kg)" THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS volumetric_charged_pct FROM ai_filtered').to_df()
+            ai_wt = duckdb.query('SELECT "Weight Type" AS weight_type, COUNT(*) AS shipments, SUM("Revenue") AS revenue, AVG("Actual Weight (kg)") AS avg_weight FROM ai_filtered GROUP BY weight_type ORDER BY revenue DESC').to_df()
+            
             context = {
-                "volumetric_charged_pct": float(weight_kpi['volumetric_charged_pct'].iloc[0]),
-                "avg_actual": float(weight_kpi['avg_actual'].iloc[0]),
-                "avg_volumetric": float(weight_kpi['avg_volumetric'].iloc[0]),
-                "weight_type_breakdown": wt[["weight_type", "shipments", "revenue", "avg_weight"]].to_dict("records"),
+                "period": f"Last 3 months ({min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')})",
+                "volumetric_charged_pct": float(ai_weight_kpi['volumetric_charged_pct'].iloc[0]) if not ai_weight_kpi.empty and pd.notna(ai_weight_kpi['volumetric_charged_pct'].iloc[0]) else 0.0,
+                "avg_actual": float(ai_weight_kpi['avg_actual'].iloc[0]) if not ai_weight_kpi.empty and pd.notna(ai_weight_kpi['avg_actual'].iloc[0]) else 0.0,
+                "avg_volumetric": float(ai_weight_kpi['avg_volumetric'].iloc[0]) if not ai_weight_kpi.empty and pd.notna(ai_weight_kpi['avg_volumetric'].iloc[0]) else 0.0,
+                "weight_type_breakdown": ai_wt[["weight_type", "shipments", "revenue", "avg_weight"]].to_csv(index=False),
             }
 
-            prompt = f"""You are a logistics operations analyst specializing in freight weight optimization.
-Analyze the following weight and dimension data and provide:
-1. Packaging optimization opportunities (volumetric vs actual weight analysis)
-2. Weight type efficiency assessment
-3. Specific recommendations to reduce volumetric charges
-4. Cargo space utilization improvements
-
-Data:
-{context}
-
-Write professionally and include specific numbers. Suggest 3 actionable improvements."""
+            prompt = f"""Freight analyst. Give 2 packaging optimization insights and 2 recommendations to reduce volumetric charges.
+Data: {context}"""
 
             with st.spinner("🧠 Analyzing weight optimization…"):
-                model = genai.GenerativeModel("gemini-2.0-flash")
-                response = model.generate_content(prompt)
-                st.markdown(response.text)
+                response = client.chat.completions.create(
+                    model="openai/gpt-oss-120b:free",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                st.markdown(response.choices[0].message.content)
 
     except ImportError:
-        st.info("Install `google-generativeai` to enable AI features.")
+        st.info("Install `openai` to enable AI features.")
     except Exception as e:
         st.error(f"AI generation failed: {e}")
