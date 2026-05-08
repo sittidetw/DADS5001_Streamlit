@@ -274,42 +274,54 @@ if ai_mode:
     st.markdown("### 🤖 AI-Generated Executive Summary")
 
     try:
-        import google.generativeai as genai
+        from openai import OpenAI
 
-        api_key = st.secrets.get("GOOGLE_API_KEY", None)
+        api_key = st.secrets.get("OPENROUTER_API_KEY", None)
         if not api_key:
-            st.warning("🔑 Add `GOOGLE_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
+            st.warning("🔑 Add `OPENROUTER_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
         else:
-            genai.configure(api_key=api_key)
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+            )
+
+            # Limit data to last 3 months for AI context
+            max_date = filtered["Order Date"].max()
+            min_date = max_date - pd.DateOffset(months=3)
+            ai_filtered = filtered[filtered["Order Date"] >= min_date]
+            
+            ai_kpi = duckdb.query('SELECT COUNT(*) AS total_shipments, SUM("Revenue") AS total_revenue, AVG("Revenue") AS avg_revenue, COUNT(DISTINCT "Customer ID") AS unique_customers FROM ai_filtered').to_df()
+            ai_status = duckdb.query('SELECT "Shipment Status" AS status, COUNT(*) AS cnt FROM ai_filtered GROUP BY status ORDER BY cnt DESC').to_df()
+            ai_direction = duckdb.query('SELECT "Inbound/Outbound" AS direction, SUM("Revenue") AS revenue FROM ai_filtered GROUP BY direction').to_df()
+            ai_industry = duckdb.query('SELECT "Industry" AS industry, SUM("Revenue") AS revenue FROM ai_filtered GROUP BY industry ORDER BY revenue DESC').to_df()
+            ai_trend = duckdb.query('SELECT DATE_TRUNC(\'month\', "Order Date") AS month, SUM("Revenue") AS revenue FROM ai_filtered GROUP BY 1 ORDER BY month').to_df()
 
             # Prepare context data
             summary_data = {
-                "total_shipments": int(kpi['total_shipments'].iloc[0]),
-                "total_revenue": float(kpi['total_revenue'].iloc[0]),
-                "avg_revenue": float(kpi['avg_revenue'].iloc[0]),
-                "unique_customers": int(kpi['unique_customers'].iloc[0]),
-                "status_breakdown": status[["status", "cnt"]].to_dict("records"),
-                "direction_split": direction[["direction", "revenue"]].to_dict("records"),
-                "top_industries": industry[["industry", "revenue"]].head(3).to_dict("records"),
-                "monthly_trend_first": {"month": str(trend["month"].iloc[0]), "revenue": float(trend["revenue"].iloc[0])},
-                "monthly_trend_last": {"month": str(trend["month"].iloc[-1]), "revenue": float(trend["revenue"].iloc[-1])},
+                "period": f"Last 3 months ({min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')})",
+                "total_shipments": int(ai_kpi['total_shipments'].iloc[0]) if not ai_kpi.empty else 0,
+                "total_revenue": float(ai_kpi['total_revenue'].iloc[0]) if not ai_kpi.empty and pd.notna(ai_kpi['total_revenue'].iloc[0]) else 0.0,
+                "avg_revenue": float(ai_kpi['avg_revenue'].iloc[0]) if not ai_kpi.empty and pd.notna(ai_kpi['avg_revenue'].iloc[0]) else 0.0,
+                "unique_customers": int(ai_kpi['unique_customers'].iloc[0]) if not ai_kpi.empty else 0,
+                "status_breakdown": ai_status[["status", "cnt"]].to_csv(index=False),
+                "direction_split": ai_direction[["direction", "revenue"]].to_csv(index=False),
+                "top_industries": ai_industry[["industry", "revenue"]].head(3).to_csv(index=False),
             }
+            if not ai_trend.empty:
+                summary_data["monthly_trend_first"] = {"month": str(ai_trend["month"].iloc[0]), "revenue": float(ai_trend["revenue"].iloc[0])}
+                summary_data["monthly_trend_last"] = {"month": str(ai_trend["month"].iloc[-1]), "revenue": float(ai_trend["revenue"].iloc[-1])}
 
-            prompt = f"""You are a senior logistics business analyst. Based on the following shipment analytics data, 
-write a concise executive summary (3-4 paragraphs) highlighting key findings, trends, and actionable recommendations.
-Be specific with numbers and percentages. Use professional business language.
-
-Data Summary:
-{summary_data}
-
-Focus on: overall performance, growth trends, operational status health, directional trade balance, and industry concentration."""
+            prompt = f"""Logistics analyst. Write a 2-paragraph executive summary with key findings and 2 recommendations.
+Data: {summary_data}"""
 
             with st.spinner("🧠 Generating executive summary…"):
-                model = genai.GenerativeModel("gemini-2.0-flash")
-                response = model.generate_content(prompt)
-                st.markdown(response.text)
+                response = client.chat.completions.create(
+                    model="openai/gpt-oss-120b:free",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                st.markdown(response.choices[0].message.content)
 
     except ImportError:
-        st.info("Install `google-generativeai` to enable AI features.")
+        st.info("Install `openai` to enable AI features.")
     except Exception as e:
         st.error(f"AI generation failed: {e}")
