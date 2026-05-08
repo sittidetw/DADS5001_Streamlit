@@ -303,41 +303,50 @@ if ai_mode:
     st.markdown("### 🤖 AI Financial Analysis")
 
     try:
-        import google.generativeai as genai
+        from openai import OpenAI
 
-        api_key = st.secrets.get("GOOGLE_API_KEY", None)
+        api_key = st.secrets.get("OPENROUTER_API_KEY", None)
         if not api_key:
-            st.warning("🔑 Add `GOOGLE_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
+            st.warning("🔑 Add `OPENROUTER_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
         else:
-            genai.configure(api_key=api_key)
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+            )
+
+            # Limit data to last 3 months for AI context
+            max_date = filtered["Order Date"].max()
+            min_date = max_date - pd.DateOffset(months=3)
+            ai_filtered = filtered[filtered["Order Date"] >= min_date]
+            
+            ai_fin_kpi = duckdb.query('SELECT SUM("RRP (Gross Price)") AS total_rrp, SUM("Billing Price (ASP)") AS total_asp FROM ai_filtered').to_df()
+            ai_promo = duckdb.query('SELECT "Promotion Type" AS promo_type, SUM("Revenue") AS revenue, AVG("Back Margin (Promotion Expense)") AS avg_discount FROM ai_filtered GROUP BY promo_type ORDER BY revenue DESC').to_df()
+            ai_industry = duckdb.query('SELECT "Industry" AS industry, SUM("Revenue") AS revenue, (SUM("Billing Price (ASP)") / NULLIF(SUM("RRP (Gross Price)"), 0)) * 100 AS margin_pct FROM ai_filtered GROUP BY industry ORDER BY revenue DESC').to_df()
+            
+            total_rrp = float(ai_fin_kpi['total_rrp'].iloc[0]) if not ai_fin_kpi.empty and pd.notna(ai_fin_kpi['total_rrp'].iloc[0]) else 0.0
+            total_asp = float(ai_fin_kpi['total_asp'].iloc[0]) if not ai_fin_kpi.empty and pd.notna(ai_fin_kpi['total_asp'].iloc[0]) else 0.0
 
             context = {
-                "total_rrp": float(fin_kpi['total_rrp'].iloc[0]),
-                "total_asp": float(fin_kpi['total_asp'].iloc[0]),
-                "discount_rate": float(discount_rate),
-                "net_margin": float(net_margin),
-                "promotion_breakdown": promo[["promo_type", "revenue", "avg_discount"]].to_dict("records"),
-                "industry_margins": industry[["industry", "revenue", "margin_pct"]].to_dict("records"),
+                "period": f"Last 3 months ({min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')})",
+                "total_rrp": total_rrp,
+                "total_asp": total_asp,
+                "discount_rate": ((total_rrp - total_asp) / total_rrp * 100) if total_rrp > 0 else 0.0,
+                "net_margin": (total_asp / total_rrp * 100) if total_rrp > 0 else 0.0,
+                "promotion_breakdown": ai_promo[["promo_type", "revenue", "avg_discount"]].to_csv(index=False),
+                "industry_margins": ai_industry[["industry", "revenue", "margin_pct"]].head(5).to_csv(index=False),
             }
 
-            prompt = f"""You are a senior financial analyst for an international logistics company.
-Analyze the following financial performance data and provide:
-1. A pricing strategy assessment (is discounting too aggressive?)
-2. Promotion ROI analysis (which promotions are most/least efficient?)
-3. Industry margin insights (which sectors need pricing adjustments?)
-4. 3 specific actionable recommendations
-
-Data:
-{context}
-
-Write in professional, concise business language. Use specific numbers."""
+            prompt = f"""Financial analyst. Briefly assess: pricing strategy, top/bottom promotion ROI, and give 2 recommendations.
+Data: {context}"""
 
             with st.spinner("🧠 Generating financial analysis…"):
-                model = genai.GenerativeModel("gemini-2.0-flash")
-                response = model.generate_content(prompt)
-                st.markdown(response.text)
+                response = client.chat.completions.create(
+                    model="openai/gpt-oss-120b:free",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                st.markdown(response.choices[0].message.content)
 
     except ImportError:
-        st.info("Install `google-generativeai` to enable AI features.")
+        st.info("Install `openai` to enable AI features.")
     except Exception as e:
         st.error(f"AI generation failed: {e}")
