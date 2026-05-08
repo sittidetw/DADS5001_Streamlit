@@ -315,38 +315,44 @@ if ai_mode:
     st.markdown("### 🤖 AI Route Optimization Analysis")
 
     try:
-        import google.generativeai as genai
+        from openai import OpenAI
 
-        api_key = st.secrets.get("GOOGLE_API_KEY", None)
+        api_key = st.secrets.get("OPENROUTER_API_KEY", None)
         if not api_key:
-            st.warning("🔑 Add `GOOGLE_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
+            st.warning("🔑 Add `OPENROUTER_API_KEY` to `.streamlit/secrets.toml` to enable AI insights.")
         else:
-            genai.configure(api_key=api_key)
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key,
+            )
+
+            # Limit data to last 3 months for AI context
+            max_date = filtered["Order Date"].max()
+            min_date = max_date - pd.DateOffset(months=3)
+            ai_filtered = filtered[filtered["Order Date"] >= min_date]
+            
+            ai_top_routes = duckdb.query('SELECT "Country of Origin" || \' → \' || "Country of Destination" AS route, "Inbound/Outbound" AS direction, COUNT(*) AS shipments, SUM("Revenue") AS revenue FROM ai_filtered GROUP BY route, direction ORDER BY revenue DESC LIMIT 10').to_df()
+            ai_sankey = duckdb.query('SELECT "Region of Origin" AS source, "Region of Destination" AS target, COUNT(*) AS shipments, SUM("Revenue") AS revenue FROM ai_filtered GROUP BY source, target ORDER BY shipments DESC LIMIT 10').to_df()
+            ai_region_rev = duckdb.query('SELECT "Region of Destination" AS region, SUM("Revenue") AS revenue, COUNT(*) AS shipments FROM ai_filtered GROUP BY region ORDER BY revenue DESC').to_df()
 
             context = {
-                "top_routes": top_routes[["route", "direction", "shipments", "revenue"]].head(10).to_dict("records"),
-                "region_flow": sankey_data[["source", "target", "shipments", "revenue"]].head(10).to_dict("records"),
-                "region_revenue": region_rev[["region", "revenue", "shipments"]].to_dict("records"),
+                "period": f"Last 3 months ({min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')})",
+                "top_routes": ai_top_routes[["route", "direction", "shipments", "revenue"]].head(5).to_csv(index=False),
+                "region_flow": ai_sankey[["source", "target", "shipments", "revenue"]].head(5).to_csv(index=False),
+                "region_revenue": ai_region_rev[["region", "revenue", "shipments"]].to_csv(index=False),
             }
 
-            prompt = f"""You are a supply chain strategist for an international logistics company.
-Analyze the following regional trade route data and provide:
-1. Assessment of trade route concentration risks
-2. Identification of underperforming or underserved routes
-3. Regional diversification recommendations
-4. 3 specific route optimization strategies with expected impact
-
-Data:
-{context}
-
-Be specific with numbers and route names. Write in professional business language."""
+            prompt = f"""Supply chain analyst. Identify top 2 route risks and give 2 diversification recommendations.
+Data: {context}"""
 
             with st.spinner("🧠 Analyzing trade routes…"):
-                model = genai.GenerativeModel("gemini-2.0-flash")
-                response = model.generate_content(prompt)
-                st.markdown(response.text)
+                response = client.chat.completions.create(
+                    model="openai/gpt-oss-120b:free",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                st.markdown(response.choices[0].message.content)
 
     except ImportError:
-        st.info("Install `google-generativeai` to enable AI features.")
+        st.info("Install `openai` to enable AI features.")
     except Exception as e:
         st.error(f"AI generation failed: {e}")
