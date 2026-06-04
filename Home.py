@@ -1,7 +1,15 @@
 import streamlit as st
 import pandas as pd
 import duckdb
-from streamlit_gsheets import GSheetsConnection
+from db import (
+    init_connections,
+    load_data_from_snowflake,
+    get_filter_metadata,
+    seed_filter_metadata_from_df,
+    save_user_preferences,
+    load_user_preferences,
+    render_data_source_badge,
+)
 
 # ──────────────────────────────────────────────
 # Page Configuration
@@ -361,68 +369,30 @@ details[data-testid="stExpander"] {
 st.markdown(DEEP_HORIZON_CSS, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────
-# Data Loading
+# Data Loading  (Snowflake → Pandas)
 # ──────────────────────────────────────────────
-@st.cache_data(ttl=600, show_spinner="📡 Loading shipment data…")
-def load_data():
-    """Load data from Google Sheets, falling back to local CSV."""
-    df = None
-    # Try Google Sheets first
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read()
-        if df is not None and len(df) > 0:
-            pass  # success
-        else:
-            df = None
-    except Exception:
-        df = None
 
-    # Fallback to local CSV
-    if df is None:
-        try:
-            df = pd.read_csv("International_Shipment_100k_V3.csv", encoding="utf-8-sig")
-        except Exception:
-            df = pd.read_csv("International_Shipment_100k_V3.csv", encoding="latin-1")
+# Initialise DB connections (cached)
+init_connections()
 
-    # Parse & clean
-    df["Order Date"] = pd.to_datetime(df["Order Date"], errors="coerce")
-    df["Year"] = df["Order Date"].dt.year
-    df["Month"] = df["Order Date"].dt.to_period("M").astype(str)
-    df["YearMonth"] = df["Order Date"].dt.to_period("M").dt.to_timestamp()
-    df["Quarter"] = df["Order Date"].dt.to_period("Q").astype(str)
-
-    # Ensure numeric columns
-    num_cols = [
-        "Actual Weight (kg)", "Width (cm)", "Length (cm)", "Height (cm)",
-        "Volumetric Weight (kg)", "Chargeable Weight (kg)",
-        "RRP (Gross Price)", "Back Margin (Promotion Expense)",
-        "Billing Price (ASP)", "Fuel Surcharge (FSC)", "Revenue",
-    ]
-    for c in num_cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
-    return df
-
-
-def run_query(query: str, df: pd.DataFrame) -> pd.DataFrame:
-    """Execute a DuckDB SQL query against the dataframe."""
-    return duckdb.query(query).to_df()
-
-
-# ──────────────────────────────────────────────
-# Load Data & Store in Session
-# ──────────────────────────────────────────────
-df = load_data()
+# Load full dataset from Snowflake (cached 10 min)
+df = load_data_from_snowflake()
 st.session_state["df"] = df
+
+# One-time: seed MongoDB filter metadata from the loaded dataset
+seed_filter_metadata_from_df(df)
 
 # ──────────────────────────────────────────────
 # Sidebar – Global Controls
 # ──────────────────────────────────────────────
+
+# Fetch dropdown metadata from MongoDB (cached implicitly via resource)
+meta = get_filter_metadata()
+
 with st.sidebar:
     st.markdown("### 🚢 ShipInsight")
     st.caption("International Shipment Analytics")
+    render_data_source_badge()
     st.divider()
 
     # AI Mode Toggle
@@ -436,7 +406,7 @@ with st.sidebar:
 
     st.divider()
 
-    # Global Date Range Filter
+    # ── Date Range Filter ──────────────────────────────────────
     st.markdown("**📅 Date Range Filter**")
     min_date = df["Order Date"].min().date()
     max_date = df["Order Date"].max().date()
@@ -456,14 +426,60 @@ with st.sidebar:
 
     st.divider()
 
-    # Data Summary
+    # ── Industry Filter (options from MongoDB) ─────────────────
+    st.markdown("**🏭 Industry Filter**")
+    industry_options = meta.get("industries", sorted(df["Industry"].dropna().unique().tolist()))
+    selected_industries = st.multiselect(
+        "Select industries",
+        options=industry_options,
+        default=[],
+        placeholder="All industries",
+        key="global_industries",
+    )
+
+    # ── Country Filter (options from MongoDB) ──────────────────
+    st.markdown("**🌍 Country of Destination**")
+    country_options = meta.get("countries_destination", sorted(df["Country of Destination"].dropna().unique().tolist()))
+    selected_countries = st.multiselect(
+        "Select countries",
+        options=country_options,
+        default=[],
+        placeholder="All countries",
+        key="global_countries",
+    )
+
+    st.divider()
+
+    # ── Apply all filters ──────────────────────────────────────
     filtered = df[
         (df["Order Date"] >= st.session_state["date_start"])
         & (df["Order Date"] <= st.session_state["date_end"])
     ]
+    if selected_industries:
+        filtered = filtered[filtered["Industry"].isin(selected_industries)]
+    if selected_countries:
+        filtered = filtered[filtered["Country of Destination"].isin(selected_countries)]
+
     st.session_state["filtered_df"] = filtered
+    st.session_state["selected_industries"] = selected_industries
+    st.session_state["selected_countries"] = selected_countries
+
     st.caption(f"📊 **{len(filtered):,}** shipments in selected range")
     st.caption(f"📅 {st.session_state['date_start'].strftime('%b %Y')} – {st.session_state['date_end'].strftime('%b %Y')}")
+
+    # ── Persist preferences to MongoDB ────────────────────────
+    session_id = st.runtime.scriptrunner.get_script_run_ctx().session_id if hasattr(st, 'runtime') else "default"
+    try:
+        import streamlit.runtime.scriptrunner as _sr
+        session_id = _sr.get_script_run_ctx().session_id
+    except Exception:
+        session_id = "default"
+    save_user_preferences(session_id, {
+        "date_start": str(st.session_state["date_start"].date()),
+        "date_end": str(st.session_state["date_end"].date()),
+        "industries": selected_industries,
+        "countries": selected_countries,
+    })
 
 # ──────────────────────────────────────────────
 # Landing Page

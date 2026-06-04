@@ -2,12 +2,9 @@ streamlit==1.57.0
 pandas==3.0.2
 duckdb==1.5.2
 plotly==6.7.0
-st-gsheets-connection==0.1.0
-gspread==5.12.4
-gspread-dataframe==4.0.0
-gspread-formatting==1.2.1
-gspread-pandas==3.3.0
 numpy==2.4.4
 watchdog==6.0.0
 openai==2.35.1
 statsmodels
+snowflake-connector-python[pandas]
+pymongo[srv]
