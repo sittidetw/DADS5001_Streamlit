@@ -5,6 +5,6 @@ plotly==6.7.0
 numpy==2.4.4
 watchdog==6.0.0
 openai==2.35.1
-statsmodels
-snowflake-connector-python[pandas]
-pymongo[srv]
+statsmodels>=0.14.4
+snowflake-connector-python[pandas]>=3.12.0
+pymongo[srv]>=4.8.0
