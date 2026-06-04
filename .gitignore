@@ -1,0 +1,30 @@
+# Custom ignored files
+secrets.toml
+
+# Streamlit configuration and secrets
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
