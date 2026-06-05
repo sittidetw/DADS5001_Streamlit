@@ -193,6 +193,201 @@ GRID_COLOR = "rgba(255,255,255,0.04)"
 AXIS_LINE_COLOR = "rgba(255,255,255,0.06)"
 
 
+def render_sidebar_filters() -> "pd.DataFrame | None":
+    """
+    Render the global filter sidebar on any page.
+
+    Requires ``st.session_state["df"]`` to be populated (i.e. Home.py ran first).
+    If the raw dataframe is missing the function shows a warning and returns None.
+
+    Returns the currently filtered DataFrame and also writes it back to
+    ``st.session_state["filtered_df"]`` so existing page code continues to work.
+    """
+    import streamlit as st
+    import pandas as pd
+
+    # ── Guard: need raw df ────────────────────────────────────────
+    if "df" not in st.session_state:
+        with st.sidebar:
+            st.warning("⚠️ Please visit the **Home** page first to load data.")
+        return None
+
+    df = st.session_state["df"]
+
+    # ── Pre-fill from MongoDB on first call in this browser session ─────
+    if "_prefs_loaded" not in st.session_state:
+        try:
+            from db import get_latest_today_preferences
+            _saved = get_latest_today_preferences()
+            if _saved:
+                try:
+                    st.session_state["date_start"] = pd.Timestamp(_saved["date_start"])
+                    st.session_state["date_end"]   = pd.Timestamp(_saved["date_end"])
+                except Exception:
+                    pass
+                st.session_state["selected_industries"] = _saved.get("industries", [])
+                st.session_state["selected_countries"]  = _saved.get("countries",  [])
+        except Exception:
+            pass
+        st.session_state["_prefs_loaded"] = True
+
+    with st.sidebar:
+        st.markdown("### 🚢 ShipInsight")
+        st.caption("International Shipment Analytics")
+
+        # Try to show data-source badge (optional — db may not be imported)
+        try:
+            from db import render_data_source_badge
+            render_data_source_badge()
+        except Exception:
+            pass
+
+        st.divider()
+
+        # ── AI Mode Toggle ─────────────────────────────────────────
+        ai_mode = st.toggle(
+            "🤖 AI Mode",
+            value=st.session_state.get("ai_mode", False),
+            key="ai_toggle_page",
+        )
+        st.session_state["ai_mode"] = ai_mode
+
+        if ai_mode:
+            st.markdown(
+                '<span style="display:inline-flex;align-items:center;gap:6px;'
+                'padding:4px 12px;border-radius:9999px;font-size:0.76rem;font-weight:600;'
+                'background:rgba(0,212,170,0.15);color:#00D4AA;'
+                'border:1px solid rgba(0,212,170,0.3);">● AI Active</span>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<span style="display:inline-flex;align-items:center;gap:6px;'
+                'padding:4px 12px;border-radius:9999px;font-size:0.76rem;font-weight:600;'
+                'background:rgba(139,149,165,0.15);color:#8B95A5;'
+                'border:1px solid rgba(139,149,165,0.2);">● Traditional BI</span>',
+                unsafe_allow_html=True,
+            )
+
+        st.divider()
+
+        # ── Resolve full date bounds once ─────────────────────────
+        min_date = df["Order Date"].min().date()
+        max_date = df["Order Date"].max().date()
+
+        if "filter_reset_counter" not in st.session_state:
+            st.session_state["filter_reset_counter"] = 0
+
+        # ── Flag pattern: increment counter to force fresh widgets ─────
+        if st.session_state.pop("_clear_filters_page", False):
+            st.session_state["filter_reset_counter"] += 1
+            st.session_state.pop("date_start", None)
+            st.session_state.pop("date_end", None)
+            st.session_state.pop("selected_industries", None)
+            st.session_state.pop("selected_countries", None)
+
+        # ── Date Range ─────────────────────────────────────────────
+        st.markdown("**📅 Date Range Filter**")
+
+        # Restore previous selection if available
+        prev_start = st.session_state.get("date_start", pd.Timestamp(min_date)).date()
+        prev_end   = st.session_state.get("date_end",   pd.Timestamp(max_date)).date()
+        prev_start = max(min_date, min(prev_start, max_date))
+        prev_end   = max(min_date, min(prev_end,   max_date))
+
+        date_range = st.date_input(
+            "Select period",
+            value=(prev_start, prev_end),
+            min_value=min_date,
+            max_value=max_date,
+            key=f"sidebar_date_range_{st.session_state['filter_reset_counter']}",
+        )
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            st.session_state["date_start"] = pd.Timestamp(date_range[0])
+            st.session_state["date_end"]   = pd.Timestamp(date_range[1])
+        else:
+            st.session_state["date_start"] = pd.Timestamp(min_date)
+            st.session_state["date_end"]   = pd.Timestamp(max_date)
+
+        st.divider()
+
+        # ── Industry Filter ────────────────────────────────────────
+        st.markdown("**🏭 Industry Filter**")
+        industry_options = sorted(df["Industry"].dropna().unique().tolist())
+        prev_industries  = st.session_state.get("selected_industries", [])
+
+        selected_industries = st.multiselect(
+            "Select industries",
+            options=industry_options,
+            default=[i for i in prev_industries if i in industry_options],
+            placeholder="All industries",
+            key=f"sidebar_industries_{st.session_state['filter_reset_counter']}",
+        )
+
+        # ── Country Filter ─────────────────────────────────────────
+        st.markdown("**🌍 Country of Destination**")
+        country_options  = sorted(df["Country of Destination"].dropna().unique().tolist())
+        prev_countries   = st.session_state.get("selected_countries", [])
+
+        selected_countries = st.multiselect(
+            "Select countries",
+            options=country_options,
+            default=[c for c in prev_countries if c in country_options],
+            placeholder="All countries",
+            key=f"sidebar_countries_{st.session_state['filter_reset_counter']}",
+        )
+
+        st.divider()
+
+        # ── Clear All Filters button (always visible) ──────────────
+        # Only sets a flag + reruns — does NOT touch widget keys here
+        # (that would throw StreamlitAPIException after instantiation).
+        if st.button("🗑️ Clear All Filters", use_container_width=True, key="clear_filters_btn"):
+            st.session_state["_clear_filters_page"] = True
+            st.rerun()
+
+        # ── Apply filters ──────────────────────────────────────────
+        filtered = df[
+            (df["Order Date"] >= st.session_state["date_start"])
+            & (df["Order Date"] <= st.session_state["date_end"])
+        ]
+        if selected_industries:
+            filtered = filtered[filtered["Industry"].isin(selected_industries)]
+        if selected_countries:
+            filtered = filtered[filtered["Country of Destination"].isin(selected_countries)]
+
+        # Persist back to session state
+        st.session_state["filtered_df"]        = filtered
+        st.session_state["selected_industries"] = selected_industries
+        st.session_state["selected_countries"]  = selected_countries
+
+        st.caption(f"📊 **{len(filtered):,}** shipments in selected range")
+        st.caption(
+            f"📅 {st.session_state['date_start'].strftime('%b %Y')} – "
+            f"{st.session_state['date_end'].strftime('%b %Y')}"
+        )
+
+        # ── Save latest preferences to MongoDB ─────────────────────
+        try:
+            from db import save_user_preferences
+            import streamlit.runtime.scriptrunner as _sr
+            _sid = _sr.get_script_run_ctx().session_id
+        except Exception:
+            _sid = "default"
+        try:
+            save_user_preferences(_sid, {
+                "date_start": str(st.session_state["date_start"].date()),
+                "date_end":   str(st.session_state["date_end"].date()),
+                "industries": selected_industries,
+                "countries":  selected_countries,
+            })
+        except Exception:
+            pass
+
+    return filtered
+
+
+
 def apply_chart_style(fig, height=400, hovermode="x unified"):
     """Apply the Deep Horizon chart styling to any Plotly figure."""
     fig.update_layout(

@@ -119,14 +119,31 @@ def get_filter_metadata() -> dict:
 
 
 def save_user_preferences(session_id: str, prefs: dict) -> None:
-    """Persist user filter preferences to MongoDB (non-fatal)."""
+    """Persist user filter preferences to MongoDB (non-fatal).
+
+    Two documents are written:
+    1. A per-session document keyed by ``session_id`` (existing behaviour).
+    2. A single ``"shared"`` document that always holds the *latest* prefs,
+       so they can be loaded on the next browser session without knowing the
+       previous session_id.
+    """
     try:
         col = get_mongo_collection("user_preferences")
         if col is None:
             return
+        # Use naive UTC datetimes for consistent MongoDB round-trips
+        now = datetime.utcnow()
+        payload = {**prefs, "updated_at": now}
+        # Per-session record (upsert)
         col.update_one(
             {"session_id": session_id},
-            {"$set": {**prefs, "updated_at": datetime.utcnow()}},
+            {"$set": payload},
+            upsert=True,
+        )
+        # Shared "latest" record so cross-session pre-fill works
+        col.update_one(
+            {"session_id": "shared"},
+            {"$set": payload},
             upsert=True,
         )
     except Exception:
@@ -141,6 +158,40 @@ def load_user_preferences(session_id: str) -> dict:
             return {}
         doc = col.find_one({"session_id": session_id}, {"_id": 0, "session_id": 0})
         return doc if doc else {}
+    except Exception:
+        return {}
+
+
+def get_latest_today_preferences() -> dict:
+    """Return the most recently saved filter preferences.
+
+    Always returns the ``"shared"`` document written by ``save_user_preferences``
+    if it exists, giving cross-session persistence.  Falls back to the most
+    recently updated per-session document if no shared doc is found.
+
+    Returns an empty dict when nothing is saved or MongoDB is offline.
+    """
+    try:
+        col = get_mongo_collection("user_preferences")
+        if col is None:
+            return {}
+
+        # 1. Prefer the shared "latest" document (updated from any session)
+        shared = col.find_one(
+            {"session_id": "shared"},
+            {"_id": 0, "session_id": 0},
+        )
+        if shared:
+            return shared
+
+        # 2. Fallback: most recently updated per-session document
+        docs = list(
+            col.find(
+                {"session_id": {"$ne": "shared"}},
+                {"_id": 0, "session_id": 0},
+            ).sort("updated_at", -1).limit(1)
+        )
+        return docs[0] if docs else {}
     except Exception:
         return {}
 

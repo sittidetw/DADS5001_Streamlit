@@ -4,13 +4,14 @@ import duckdb
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
-from theme import PAGE_CSS, PLOTLY_TEMPLATE, COLOR_SEQ, CHART_LAYOUT, GRID_COLOR, apply_chart_style
+from theme import PAGE_CSS, PLOTLY_TEMPLATE, COLOR_SEQ, CHART_LAYOUT, GRID_COLOR, apply_chart_style, render_sidebar_filters
 
 st.set_page_config(page_title="AI Insights – ShipInsight", page_icon="🤖", layout="wide")
 st.markdown(PAGE_CSS, unsafe_allow_html=True)
 
-if "filtered_df" not in st.session_state:
-    st.warning("⚠️ Please navigate to the **Home** page first to load data.")
+# ── Sidebar Filters (renders on every page) ───────────────────
+_filtered = render_sidebar_filters()
+if _filtered is None:
     st.stop()
 
 df = st.session_state["df"]

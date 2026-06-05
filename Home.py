@@ -8,6 +8,7 @@ from db import (
     seed_filter_metadata_from_df,
     save_user_preferences,
     load_user_preferences,
+    get_latest_today_preferences,
     render_data_source_badge,
 )
 
@@ -389,6 +390,20 @@ seed_filter_metadata_from_df(df)
 # Fetch dropdown metadata from MongoDB (cached implicitly via resource)
 meta = get_filter_metadata()
 
+# ── Pre-fill from MongoDB on first page load ───────────────────────────────
+# Only runs once per browser session (before session_state keys exist).
+if "_prefs_loaded" not in st.session_state:
+    _saved = get_latest_today_preferences()
+    if _saved:
+        try:
+            st.session_state["date_start"] = pd.Timestamp(_saved["date_start"])
+            st.session_state["date_end"]   = pd.Timestamp(_saved["date_end"])
+        except Exception:
+            pass
+        st.session_state["selected_industries"] = _saved.get("industries", [])
+        st.session_state["selected_countries"]  = _saved.get("countries",  [])
+    st.session_state["_prefs_loaded"] = True
+
 with st.sidebar:
     st.markdown("### 🚢 ShipInsight")
     st.caption("International Shipment Analytics")
@@ -410,12 +425,30 @@ with st.sidebar:
     st.markdown("**📅 Date Range Filter**")
     min_date = df["Order Date"].min().date()
     max_date = df["Order Date"].max().date()
+
+    if "filter_reset_counter" not in st.session_state:
+        st.session_state["filter_reset_counter"] = 0
+
+    # ── Flag pattern: increment counter to force fresh widgets ─────
+    if st.session_state.pop("_clear_filters_home", False):
+        st.session_state["filter_reset_counter"] += 1
+        st.session_state.pop("date_start", None)
+        st.session_state.pop("date_end", None)
+        st.session_state.pop("selected_industries", None)
+        st.session_state.pop("selected_countries", None)
+
+    # Use saved/restored values if available, otherwise full range
+    _d_start = st.session_state.get("date_start", pd.Timestamp(min_date)).date()
+    _d_end   = st.session_state.get("date_end",   pd.Timestamp(max_date)).date()
+    _d_start = max(min_date, min(_d_start, max_date))
+    _d_end   = max(min_date, min(_d_end,   max_date))
+
     date_range = st.date_input(
         "Select period",
-        value=(min_date, max_date),
+        value=(_d_start, _d_end),
         min_value=min_date,
         max_value=max_date,
-        key="global_date_range",
+        key=f"global_date_range_{st.session_state['filter_reset_counter']}",
     )
     if isinstance(date_range, tuple) and len(date_range) == 2:
         st.session_state["date_start"] = pd.Timestamp(date_range[0])
@@ -429,24 +462,35 @@ with st.sidebar:
     # ── Industry Filter (options from MongoDB) ─────────────────
     st.markdown("**🏭 Industry Filter**")
     industry_options = meta.get("industries", sorted(df["Industry"].dropna().unique().tolist()))
+    _prev_industries = st.session_state.get("selected_industries", [])
     selected_industries = st.multiselect(
         "Select industries",
         options=industry_options,
-        default=[],
+        default=[i for i in _prev_industries if i in industry_options],
         placeholder="All industries",
-        key="global_industries",
+        key=f"global_industries_{st.session_state['filter_reset_counter']}",
     )
 
     # ── Country Filter (options from MongoDB) ──────────────────
     st.markdown("**🌍 Country of Destination**")
     country_options = meta.get("countries_destination", sorted(df["Country of Destination"].dropna().unique().tolist()))
+    _prev_countries = st.session_state.get("selected_countries", [])
     selected_countries = st.multiselect(
         "Select countries",
         options=country_options,
-        default=[],
+        default=[c for c in _prev_countries if c in country_options],
         placeholder="All countries",
-        key="global_countries",
+        key=f"global_countries_{st.session_state['filter_reset_counter']}",
     )
+
+    st.divider()
+
+    # ── Clear All Filters button (always visible) ──────────────
+    # Only sets a flag + reruns — does NOT touch widget keys here
+    # (that would throw StreamlitAPIException after instantiation).
+    if st.button("🗑️ Clear All Filters", use_container_width=True, key="clear_filters_home"):
+        st.session_state["_clear_filters_home"] = True
+        st.rerun()
 
     st.divider()
 
