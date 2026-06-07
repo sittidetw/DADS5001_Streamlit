@@ -100,7 +100,7 @@ with tab1:
                         prompt = f"""DuckDB SQL expert. Write a SQL query for: {question}
 Table 'filtered', columns: {cols_info}. "Order Date" is timestamp. Double-quote column names. Return SQL only."""
                         resp = client.chat.completions.create(
-                            model="google/gemma-4-26b-a4b-it:free",
+                            model="openai/gpt-oss-120b:free", # "google/gemma-4-26b-a4b-it:free",
                             messages=[{"role": "user", "content": prompt}],
                         )
                         sql = resp.choices[0].message.content.strip().replace("```sql", "").replace("```", "").strip()

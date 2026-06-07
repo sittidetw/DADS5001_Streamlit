@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Thailand Standard Time – ICT (GMT+7)
+TZ_ICT = timezone(timedelta(hours=7))
 from theme import PAGE_CSS, PLOTLY_TEMPLATE, COLOR_SEQ, CHART_LAYOUT, GRID_COLOR
 from db import submit_insight, get_recent_insights, get_mongo_collection
 
@@ -135,7 +138,7 @@ with col_form:
                 "flag_type": flag_type,
                 "priority": priority,
                 "comment": comment.strip(),
-                "submitted_at": datetime.utcnow(),
+                "submitted_at": datetime.now(TZ_ICT),
             }
             success = submit_insight(payload)
             if success:
@@ -186,7 +189,15 @@ with col_feed:
             p_color = priority_colors.get(p, "#8B95A5")
             icon = flag_icons.get(ins.get("flag_type", ""), "💬")
             submitted_at = ins.get("submitted_at")
-            ts = submitted_at.strftime("%d %b %Y  %H:%M UTC") if isinstance(submitted_at, datetime) else "—"
+            if isinstance(submitted_at, datetime):
+                # MongoDB returns naive UTC datetimes; convert to Thailand time for display
+                if submitted_at.tzinfo is None:
+                    submitted_at = submitted_at.replace(tzinfo=timezone.utc).astimezone(TZ_ICT)
+                else:
+                    submitted_at = submitted_at.astimezone(TZ_ICT)
+                ts = submitted_at.strftime("%d %b %Y  %H:%M Thailand Time")
+            else:
+                ts = "—"
 
             st.markdown(
                 f"""

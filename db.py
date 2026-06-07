@@ -15,7 +15,10 @@ import streamlit as st
 import pandas as pd
 import snowflake.connector
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# Thailand Standard Time – ICT (GMT+7)
+TZ_ICT = timezone(timedelta(hours=7))
 
 
 # ──────────────────────────────────────────────────────────────
@@ -131,8 +134,8 @@ def save_user_preferences(session_id: str, prefs: dict) -> None:
         col = get_mongo_collection("user_preferences")
         if col is None:
             return
-        # Use naive UTC datetimes for consistent MongoDB round-trips
-        now = datetime.utcnow()
+        # Use Thailand Standard Time (ICT, GMT+7) for all timestamps
+        now = datetime.now(TZ_ICT)
         payload = {**prefs, "updated_at": now}
         # Per-session record (upsert)
         col.update_one(
@@ -202,7 +205,7 @@ def submit_insight(payload: dict) -> bool:
         col = get_mongo_collection("insights")
         if col is None:
             return False
-        payload["submitted_at"] = datetime.utcnow()
+        payload["submitted_at"] = datetime.now(TZ_ICT)
         col.insert_one(payload)
         return True
     except Exception:
@@ -354,7 +357,7 @@ def seed_filter_metadata_from_df(df: pd.DataFrame) -> None:
             "statuses": sorted(df["Shipment Status"].dropna().unique().tolist()),
             "directions": sorted(df["Inbound/Outbound"].dropna().unique().tolist()),
             "weight_types": sorted(df["Weight Type"].dropna().unique().tolist()),
-            "seeded_at": datetime.utcnow(),
+            "seeded_at": datetime.now(TZ_ICT),
         }
         col.insert_one(metadata)
     except Exception:
