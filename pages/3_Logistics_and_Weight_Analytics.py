@@ -70,7 +70,7 @@ st.divider()
 # ──────────────────────────────────────────────
 st.markdown("### 📈 Seasonal Weight & Revenue Trends")
 st.markdown('''<div class="insight-box">
-💡 <strong>What does this chart show?</strong> The <span style="color:#8338EC;"><strong>purple line</strong></span> tracks each month\'s total physical weight shipped (left axis). The <span style="color:#A7F3D0;"><strong>green bars</strong></span> show monthly revenue (right axis) so you can see if revenue follows the same seasonal pattern as workload. The <span style="color:#FFB703;"><strong>gold dashed line</strong></span> shows the overall weight trend. Peaks = busiest months. Use this to plan staffing, warehouse space & carrier contracts.
+💡 <strong>What does this chart show?</strong> The <span style="color:#00D4AA;"><strong>teal line</strong></span> tracks each month\'s total physical weight shipped (left axis). The <span style="color:#00B4D8;"><strong>blue bars</strong></span> show monthly revenue (right axis) so you can see if revenue follows the same seasonal pattern as workload. The <span style="color:#FFB703;"><strong>gold dashed line</strong></span> shows the overall weight trend. Peaks = busiest months. Use this to plan staffing, warehouse space & carrier contracts.
 </div>''', unsafe_allow_html=True)
 
 import numpy as np
@@ -90,27 +90,26 @@ trend_data["month_str"] = trend_data["month"].dt.strftime('%b %Y')
 
 fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
 
-# Green bars for Monthly Revenue (secondary y-axis)
+# Teal bars for Monthly Revenue (secondary y-axis)
 fig_trend.add_trace(
     go.Bar(
         x=trend_data["month_str"], 
         y=trend_data["total_revenue"],
         name="Monthly Revenue", 
-        marker_color="#A7F3D0",
-        opacity=0.8,
+        marker_color="rgba(0,180,216,0.35)",
         hovertemplate="%{x}<br>Revenue: ฿%{y:,.0f}<extra></extra>"
     ), secondary_y=True
 )
 
-# Purple line for Total Actual Weight (primary y-axis)
+# Teal line for Total Actual Weight (primary y-axis)
 fig_trend.add_trace(
     go.Scatter(
         x=trend_data["month_str"], 
         y=trend_data["total_weight"],
         name="Total Actual Weight", 
         mode="lines+markers",
-        line=dict(color="#8338EC", width=3), 
-        marker=dict(size=9, color="#3B82F6", line=dict(color="#8338EC", width=2)),
+        line=dict(color="#00D4AA", width=3), 
+        marker=dict(size=6, color="#00D4AA"),
         hovertemplate="%{x}<br>Weight: %{y:,.0f} kg<extra></extra>"
     ), secondary_y=False
 )
@@ -196,7 +195,7 @@ with col_left:
     fig_wt.add_trace(
         go.Bar(
             x=wt["weight_type"], y=wt["shipments"],
-            name="Shipment Count", marker_color="#00B4D8",
+            name="Shipment Count", marker_color="rgba(0,180,216,0.35)",
             hovertemplate="%{x}<br>Shipments: %{y:,.0f}<extra></extra>"
         ), secondary_y=False
     )
@@ -204,7 +203,7 @@ with col_left:
         go.Scatter(
             x=wt["weight_type"], y=wt["avg_revenue"],
             name="Avg Revenue", mode="lines+markers",
-            line=dict(color="#FFB703", width=2.5), marker=dict(size=8, symbol="diamond"),
+            line=dict(color="#00D4AA", width=2.5), marker=dict(size=8, symbol="diamond"),
             hovertemplate="%{x}<br>Avg Rev: ฿%{y:,.0f}<extra></extra>"
         ), secondary_y=True
     )
@@ -266,7 +265,7 @@ dim_melted["dimension"] = dim_melted["dimension"].map({"width": "Width (cm)", "l
 fig_dim = px.violin(
     dim_melted, x="dimension", y="value", color="dimension",
     box=True, points=False,
-    color_discrete_sequence=["#00D4AA", "#00B4D8", "#FFB703"],
+    color_discrete_sequence=["rgba(0,180,216,0.6)", "#00D4AA", "#00B4D8"],
     labels={"dimension": "Dimension", "value": "Measurement (cm)"},
 )
 fig_dim.update_layout(
@@ -303,7 +302,7 @@ fig_bubble = px.scatter(
     vol_eff, x="avg_actual", y="avg_volumetric",
     size="total_revenue", color="weight_type",
     size_max=60, text="weight_type",
-    color_discrete_sequence=["#00D4AA", "#00B4D8", "#FFB703", "#E63946", "#8338EC", "#FF6D00"],
+    color_discrete_sequence=["#00D4AA", "#00B4D8", "#0E4D64", "#FFB703", "#E63946", "#48CAE4"],
     hover_data={"shipments": ":,.0f", "avg_revenue": ":,.0f", "total_revenue": ":,.0f"},
     labels={
         "avg_actual": "Avg Actual Weight (kg)",
