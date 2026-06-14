@@ -76,6 +76,14 @@ The app is designed with a custom *Deep Horizon* dark design system — glassmor
 - MongoDB helpers — `save_user_preferences`, `get_latest_today_preferences`, `seed_filter_metadata_from_df`, `submit_insight`, `get_recent_insights`.
 - `render_data_source_badge()` — shows live/offline status badges in the sidebar.
 
+**Streamlit caching & state strategy:**
+
+| Mechanism | Where used | Purpose |
+|-----------|-----------|--------|
+| `@st.cache_resource` | `init_connections()` | Keeps Snowflake and MongoDB connections alive across reruns and users — initialised once per server process. |
+| `@st.cache_data(ttl=600)` | `load_data_from_snowflake()` | Caches the full 100 K-row DataFrame in memory for 10 minutes, avoiding repeated round-trips to Snowflake on every page navigation or filter change. |
+| `st.session_state` | All pages | Shares the filtered DataFrame (`filtered_df`), active filter selections (`date_start`, `date_end`, `selected_industries`, `selected_countries`), and the AI Mode toggle across the entire multi-page app within a single browser session. |
+
 **Design system (`theme.py`):**  
 Centralises all CSS variables (*Deep Horizon* palette), Plotly template, colour sequences, and a `render_sidebar_filters()` helper used by every analytics page.
 
@@ -83,7 +91,7 @@ Centralises all CSS variables (*Deep Horizon* palette), Plotly template, colour 
 
 ## Dataset
 
-`International_Shipment_100k_V3.csv` (~21 MB) and the Snowflake table `DADS5001_SHIPINSIGHT.PUBLIC.SHIPMENT` contain ~100,000 rows with fields including:
+The dataset (`International_Shipment_100k_V3.csv`, ~21 MB) has been ingested into Snowflake as the table `DADS5001_SHIPINSIGHT.PUBLIC.SHIPMENT` — this is the **live data source** the app queries at runtime. The CSV file is kept in the repository as a reference copy only. The table contains ~100,000 rows with fields including:
 
 > **Note:** The dataset is **synthetically generated** for educational purposes. It does not represent real shipment transactions.
 
