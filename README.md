@@ -5,6 +5,13 @@
 
 ---
 
+## Members
+- 6810422001 Jedsadaporn Jinasena
+- 6810422002 Pichaya Jandokmai
+- 6810422030 Sittidet Wichaidit
+
+---
+
 ## Links
 
 | | |
@@ -13,13 +20,6 @@
 | 🎬 **Presentation Video** | <a href="https://nida365-my.sharepoint.com/:v:/g/personal/6810422030_stu_nida_ac_th/IQC-t7nCncp7RqpFGddLE7j6AVO2NFbnUBdEAcdG4YxoweY" target="_blank">Watch on SharePoint</a> |
 
 > 🔒 The presentation video is hosted on NIDA SharePoint and is accessible to **NIDA members only** (requires a `@stu.nida.ac.th` or `@nida.ac.th` account).
-
----
-
-## Members
-- 6810422001 Jedsadaporn Jinasena
-- 6810422002 Pichaya Jandokmai
-- 6810422030 Sittidet Wichaidit
 
 ---
 
@@ -50,7 +50,7 @@ The app is designed with a custom *Deep Horizon* dark design system — glassmor
 ```
 ┌─────────────────────────────────────────┐
 │              Streamlit App              │
-│  Home.py  +  pages/1_…6_*.py           │
+│  Home.py  +  pages/1_…6_*.py            │
 │  theme.py (CSS / Plotly design system)  │
 └───────────┬─────────────────┬───────────┘
             │                 │
