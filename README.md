@@ -17,7 +17,7 @@
 | | |
 |---|---|
 | 🚀 **Live App** | [shipinsight.streamlit.app](https://shipinsight.streamlit.app) |
-| 🎬 **Presentation Video** | [Watch on SharePoint](https://nida365-my.sharepoint.com/:v:/g/personal/6810422030_stu_nida_ac_th/IQC-t7nCncp7RqpFGddLE7j6AVO2NFbnUBdEAcdG4YxoweY) |
+| 🎬 **Presentation Video & Demo** | [Watch on SharePoint](https://nida365-my.sharepoint.com/:v:/g/personal/6810422030_stu_nida_ac_th/IQC-t7nCncp7RqpFGddLE7j6AVO2NFbnUBdEAcdG4YxoweY) |
 
 > 🔒 The presentation video is hosted on NIDA SharePoint and is accessible to **NIDA members only** (requires a `@stu.nida.ac.th` or `@nida.ac.th` account).
 
