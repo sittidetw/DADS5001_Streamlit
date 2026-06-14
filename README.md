@@ -5,6 +5,17 @@
 
 ---
 
+## 🔗 Links
+
+| | |
+|---|---|
+| 🚀 **Live App** | [shipinsight.streamlit.app](https://shipinsight.streamlit.app) |
+| 🎬 **Presentation Video** | [Watch on YouTube / Google Drive](#) |
+
+> ⚠️ Replace the placeholder URLs above with the actual links before publishing.
+
+---
+
 ## Members
 - 6810422001 Jedsadaporn Jinasena
 - 6810422002 Pichaya Jandokmai
@@ -73,6 +84,8 @@ Centralises all CSS variables (*Deep Horizon* palette), Plotly template, colour 
 ## Dataset
 
 `International_Shipment_100k_V3.csv` (~21 MB) and the Snowflake table `DADS5001_SHIPINSIGHT.PUBLIC.SHIPMENT` contain ~100,000 rows with fields including:
+
+> **Note:** The dataset is **synthetically generated** for educational purposes. It does not represent real shipment transactions.
 
 | Field | Description |
 |-------|-------------|
