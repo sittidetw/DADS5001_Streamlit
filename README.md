@@ -5,6 +5,13 @@
 
 ---
 
+## Members
+- 6810422001 Jedsadaporn Jinasena
+- 6810422002 Pichaya Jandokmai
+- 6810422030 Sittidet Wichaidit
+
+---
+
 ## Overview
 
 **ShipInsight** is a data analytics platform for international logistics operations. It pulls shipment data from **Snowflake**, uses **DuckDB** for in-browser SQL analytics, persists user preferences and team annotations in **MongoDB**, and optionally calls an LLM through **OpenRouter** when AI Mode is enabled.
@@ -86,62 +93,6 @@ Centralises all CSS variables (*Deep Horizon* palette), Plotly template, colour 
 | Revenue | Final recognised revenue |
 | Promotion Type | Promotion category |
 | FTB (First time buyer) | Boolean first-purchase flag |
-
----
-
-## Setup
-
-### Prerequisites
-
-- Python 3.10+
-- Access to a Snowflake account with the `DADS5001_SHIPINSIGHT` database
-- (Optional) MongoDB Atlas URI for write-back features
-- (Optional) OpenRouter API key for AI Mode
-
-### Installation
-
-```bash
-# Clone the repo
-git clone <repo-url>
-cd DADS5001_Streamlit
-
-# Create a virtual environment and install dependencies
-python -m venv .venv
-source .venv/bin/activate      # macOS/Linux
-# .venv\Scripts\activate       # Windows
-
-pip install -r requirements.txt
-```
-
-### Secrets Configuration
-
-Create `.streamlit/secrets.toml`:
-
-```toml
-OPENROUTER_API_KEY = "sk-or-..."   # optional – enables AI Mode
-
-[snowflake]
-user      = "YOUR_USER"
-password  = "YOUR_PASSWORD"
-account   = "YOUR_ACCOUNT"          # e.g. abc12345.us-east-1
-warehouse = "YOUR_WAREHOUSE"
-database  = "DADS5001_SHIPINSIGHT"
-schema    = "PUBLIC"
-role      = "YOUR_ROLE"             # optional
-
-[mongo]
-uri = "mongodb+srv://user:pass@cluster.mongodb.net/?retryWrites=true"
-```
-
-> **Note:** MongoDB is optional. The app runs normally without it — preferences and team annotations are simply disabled.
-
-### Running
-
-```bash
-streamlit run Home.py
-```
-
-The app will open at `http://localhost:8501`.
 
 ---
 
