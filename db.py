@@ -252,7 +252,7 @@ def _parse_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=600, show_spinner="📡 Loading shipment data from Snowflake…")
+@st.cache_data(ttl=1800, show_spinner="📡 Loading shipment data from Snowflake…")
 def load_data_from_snowflake() -> pd.DataFrame:
     """
     Pull the complete shipment dataset from Snowflake and return a
